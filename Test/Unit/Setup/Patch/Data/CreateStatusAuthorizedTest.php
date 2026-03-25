@@ -17,72 +17,91 @@ use Adyen\Payment\Test\Unit\AbstractAdyenTestCase;
 use Magento\Framework\App\Config\ReinitableConfigInterface;
 use Magento\Framework\App\Config\Storage\WriterInterface;
 use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\DB\Select;
 use Magento\Framework\Setup\ModuleDataSetupInterface;
-use Magento\Sales\Model\Order\Status;
-use Magento\Sales\Model\Order\StatusFactory;
-use Magento\Sales\Model\ResourceModel\Order\Status as StatusResource;
-use Magento\Sales\Model\ResourceModel\Order\StatusFactory as StatusResourceFactory;
+use PHPUnit\Framework\MockObject\MockObject;
 
 class CreateStatusAuthorizedTest extends AbstractAdyenTestCase
 {
+    protected CreateStatusAuthorized $createStatusAuthorized;
+    protected ModuleDataSetupInterface|MockObject $moduleDataSetupMock;
+    protected WriterInterface|MockObject $configWriteMock;
+    protected ReinitableConfigInterface|MockObject $reinitableConfigMock;
+    protected DataPatch|MockObject $dataPatchHelperMock;
+    protected AdapterInterface|MockObject $connectionMock;
+
+    /**
+     * @return void
+     */
+    protected function setUp():void
+    {
+        $selectMock = $this->createMock(Select::class);
+        $selectMock->method('from')->willReturnSelf();
+        $selectMock->method('where')->willReturnSelf();
+
+        $this->connectionMock = $this->createMock(AdapterInterface::class);
+        $this->connectionMock->method('select')->willReturn($selectMock);
+
+        $this->moduleDataSetupMock = $this->createConfiguredMock(ModuleDataSetupInterface::class, [
+            'getConnection' => $this->connectionMock,
+            'getTable' => 'sales_order_status'
+        ]);
+        $this->configWriteMock = $this->createMock(WriterInterface::class);
+        $this->reinitableConfigMock = $this->createMock(ReinitableConfigInterface::class);
+        $this->dataPatchHelperMock = $this->createConfiguredMock(DataPatch::class, [
+            'findConfig' => null
+        ]);
+
+        $this->createStatusAuthorized = new CreateStatusAuthorized(
+            $this->moduleDataSetupMock,
+            $this->configWriteMock,
+            $this->reinitableConfigMock,
+            $this->dataPatchHelperMock
+        );
+    }
+
     public function testApply()
     {
-        $createStatusAuthorized = $this->getCreateStatusAuthorized();
-        $createStatusAuthorized->apply();
+        $this->connectionMock->method('fetchRow')->willReturn([]);
+        $this->connectionMock->expects($this->atLeastOnce())
+            ->method('insert');
 
-        $this->assertTrue(true);
+        $result = $this->createStatusAuthorized->apply();
+
+        $this->assertInstanceOf(CreateStatusAuthorized::class, $result);
+    }
+
+    public function testApplyFail()
+    {
+        $this->connectionMock->method('fetchRow')->willReturn([
+            'status' => 'adyen_authorized'
+        ]);
+
+        $this->connectionMock->expects($this->never())->method('insert');
+
+        $result = $this->createStatusAuthorized->apply();
+
+        $this->assertInstanceOf(CreateStatusAuthorized::class, $result);
     }
 
     public function testGetAliases()
     {
-        $createStatusAuthorized = $this->getCreateStatusAuthorized();
-        $aliases = $createStatusAuthorized->getAliases();
+        $aliases = $this->createStatusAuthorized->getAliases();
 
         $this->assertSame([], $aliases);
     }
 
     public function testGetDependencies()
     {
-        $createStatusAuthorized = $this->getCreateStatusAuthorized();
-        $dependencies = $createStatusAuthorized::getDependencies();
+        $dependencies = $this->createStatusAuthorized::getDependencies();
 
         $this->assertSame([], $dependencies);
     }
 
     public function getVersion()
     {
-        $createStatusAuthorized = $this->getCreateStatusAuthorized();
-        $version = $createStatusAuthorized::getVersion();
+        $version = $this->createStatusAuthorized::getVersion();
 
         $this->assertNotEmpty($version);
-    }
-
-    /**
-     * @return CreateStatusAuthorized
-     */
-    public function getCreateStatusAuthorized(): CreateStatusAuthorized
-    {
-        $moduleDataSetupMock = $this->createConfiguredMock(ModuleDataSetupInterface::class, [
-            'getConnection' => $this->createMock(AdapterInterface::class)
-        ]);
-        $configWriteMock = $this->createMock(WriterInterface::class);
-        $reinitableConfigMock = $this->createMock(ReinitableConfigInterface::class);
-        $dataPatchHelperMock = $this->createConfiguredMock(DataPatch::class, [
-            'findConfig' => null
-        ]);
-        $statusFactoryMock = $this->createGeneratedMock(StatusFactory::class, ['create']);
-        $statusFactoryMock->method('create')->willReturn($this->createMock(Status::class));
-        $statusResourceFactoryMock = $this->createGeneratedMock(StatusResourceFactory::class, ['create']);
-        $statusResourceFactoryMock->method('create')
-            ->willReturn($this->createMock(StatusResource::class));
-
-        return new CreateStatusAuthorized(
-            $moduleDataSetupMock,
-            $configWriteMock,
-            $reinitableConfigMock,
-            $dataPatchHelperMock,
-            $statusFactoryMock,
-            $statusResourceFactoryMock
-        );
     }
 }

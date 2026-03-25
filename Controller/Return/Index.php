@@ -23,14 +23,14 @@ use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
-use Magento\Sales\Model\Order;
+use Magento\Quote\Api\CartRepositoryInterface;
+use Magento\Sales\Api\Data\OrderInterface;
+use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\OrderFactory;
 use Magento\Store\Model\StoreManagerInterface;
 
 class Index extends Action
 {
-    const BRAND_CODE_DOTPAY = 'dotpay';
-    const RESULT_CODE_RECEIVED = 'Received';
     const DETAILS_ALLOWED_PARAM_KEYS = [
         'MD',
         'PaReq',
@@ -50,38 +50,35 @@ class Index extends Action
         'threeds2.fingerprint'
     ];
 
-    protected OrderFactory $orderFactory;
-    protected Config $configHelper;
-    protected Order $order;
-    protected Session $session;
-    protected AdyenLogger $adyenLogger;
-    protected StoreManagerInterface $storeManager;
-    private Quote $quoteHelper;
-    private Order\Payment $payment;
-    private PaymentsDetails $paymentsDetailsHelper;
-    private PaymentResponseHandler $paymentResponseHandler;
+    private ?OrderInterface $order = null;
 
+    /**
+     * @param Context $context
+     * @param OrderFactory $orderFactory
+     * @param Session $session
+     * @param AdyenLogger $adyenLogger
+     * @param StoreManagerInterface $storeManager
+     * @param Quote $quoteHelper
+     * @param Config $configHelper
+     * @param PaymentsDetails $paymentsDetailsHelper
+     * @param PaymentResponseHandler $paymentResponseHandler
+     * @param CartRepositoryInterface $cartRepository
+     * @param OrderRepositoryInterface $orderRepository
+     */
     public function __construct(
         Context                  $context,
-        OrderFactory             $orderFactory,
-        Session                  $session,
-        AdyenLogger              $adyenLogger,
-        StoreManagerInterface    $storeManager,
-        Quote                    $quoteHelper,
-        Config                   $configHelper,
-        PaymentsDetails $paymentsDetailsHelper,
-        PaymentResponseHandler $paymentResponseHandler
+        private readonly OrderFactory             $orderFactory,
+        private readonly Session                  $session,
+        private readonly AdyenLogger              $adyenLogger,
+        private readonly StoreManagerInterface    $storeManager,
+        private readonly Quote                    $quoteHelper,
+        private readonly Config                   $configHelper,
+        private readonly PaymentsDetails $paymentsDetailsHelper,
+        private readonly PaymentResponseHandler $paymentResponseHandler,
+        private readonly CartRepositoryInterface $cartRepository,
+        private readonly OrderRepositoryInterface $orderRepository
     ) {
         parent::__construct($context);
-
-        $this->orderFactory = $orderFactory;
-        $this->session = $session;
-        $this->adyenLogger = $adyenLogger;
-        $this->storeManager = $storeManager;
-        $this->quoteHelper = $quoteHelper;
-        $this->configHelper = $configHelper;
-        $this->paymentsDetailsHelper = $paymentsDetailsHelper;
-        $this->paymentResponseHandler = $paymentResponseHandler;
     }
 
     /**
@@ -112,12 +109,14 @@ class Index extends Action
             }
 
             if ($result) {
-                $this->session->getQuote()->setIsActive($setQuoteAsActive)->save();
+                $quote = $this->session->getQuote();
+                $quote->setIsActive($setQuoteAsActive);
+                $this->cartRepository->save($quote);
 
                 // Add OrderIncrementId to redirect parameters for headless support.
                 $redirectParams = $this->configHelper->getAdyenAbstractConfigData('custom_success_redirect_path', $storeId)
-                    ? ['_query' => ['utm_nooverride' => '1', 'order_increment_id' => $this->order->getIncrementId()]]
-                    : ['_query' => ['utm_nooverride' => '1']];
+                    ? ['_query' => ['order_increment_id' => $this->order->getIncrementId()]]
+                    : [];
                 $this->_redirect($successPath, $redirectParams);
             } else {
                 $this->adyenLogger->addAdyenResult(
@@ -132,7 +131,7 @@ class Index extends Action
                 $this->session->restoreQuote();
                 $this->messageManager->addError(__('Your payment failed, Please try again later'));
 
-                $this->_redirect($failPath, ['_query' => ['utm_nooverride' => '1']]);
+                $this->_redirect($failPath);
             }
         } else {
             $this->_redirect($this->configHelper->getAdyenAbstractConfigData('return_path', $storeId));
@@ -156,25 +155,13 @@ class Index extends Action
             $paymentsDetailsResponse['error'] = $e->getMessage();
         }
 
-        $result = false;
+        $result = $this->paymentResponseHandler->handlePaymentsDetailsResponse(
+            $paymentsDetailsResponse,
+            $order
+        );
 
-        // Compare the merchant references
-        $merchantReference = $paymentsDetailsResponse['merchantReference'] ?? null;
-        if ($merchantReference) {
-            if ($order->getIncrementId() === $merchantReference) {
-                $this->order = $order;
-                $this->payment = $order->getPayment();
-                $this->cleanUpRedirectAction();
-
-                $result = $this->paymentResponseHandler->handlePaymentsDetailsResponse(
-                    $paymentsDetailsResponse,
-                    $order
-                );
-            } else {
-                $this->adyenLogger->error("Wrong merchantReference was set in the query or in the session");
-            }
-        } else {
-            $this->adyenLogger->error("No merchantReference in the response");
+        if ($result) {
+            $this->order = $order;
         }
 
         return $result;
@@ -183,39 +170,30 @@ class Index extends Action
     /**
      * @throws LocalizedException
      */
-    private function getOrder(string $incrementId = null): Order
+    private function getOrder(?string $incrementId = null): OrderInterface
     {
-        if ($incrementId !== null) {
-            $order = $this->orderFactory->create()->loadByIncrementId($incrementId);
-        } else {
-            $order = $this->session->getLastRealOrder();
-        }
+        try {
+            if ($incrementId !== null) {
+                $entity = $this->orderFactory->create()->loadByIncrementId($incrementId);
 
-        if (!$order->getId()) {
-            throw new LocalizedException(
-                __('Order cannot be loaded')
-            );
+                if (!$entity->getEntityId()) {
+                    throw new NoSuchEntityException(
+                        __("The entity that was requested doesn't exist. Verify the entity and try again.")
+                    );
+                }
+
+                $order = $this->orderRepository->get($entity->getEntityId());
+            } else {
+                $order = $this->session->getLastRealOrder();
+
+                if (!$order->getId()) {
+                    throw new NoSuchEntityException();
+                }
+            }
+        } catch (NoSuchEntityException $e) {
+            throw new LocalizedException(__('Order cannot be loaded'));
         }
 
         return $order;
-    }
-
-    /**
-     * @return void
-     * @throws Exception
-     */
-    private function cleanUpRedirectAction(): void
-    {
-        // Prevent action component to redirect page again after returning to the shop
-        $paymentAction = $this->order->getPayment()->getAdditionalInformation('action');
-        $brandCode = $this->order->getPayment()->getAdditionalInformation('brand_code');
-        $resultCode = $this->order->getPayment()->getAdditionalInformation('resultCode');
-
-        if (($brandCode == self::BRAND_CODE_DOTPAY && $resultCode == self::RESULT_CODE_RECEIVED) ||
-            (isset($paymentAction) && $paymentAction['type'] === 'redirect')
-        ) {
-            $this->payment->unsAdditionalInformation('action');
-            $this->order->save();
-        }
     }
 }

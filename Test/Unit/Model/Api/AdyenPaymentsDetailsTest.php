@@ -13,12 +13,14 @@ namespace Adyen\Payment\Test\Unit\Model\Api;
 
 use Adyen\Payment\Helper\PaymentResponseHandler;
 use Adyen\Payment\Helper\PaymentsDetails;
+use Adyen\Payment\Logger\AdyenLogger;
 use Adyen\Payment\Model\Api\AdyenPaymentsDetails;
 use Adyen\Payment\Test\Unit\AbstractAdyenTestCase;
 use Magento\Framework\Exception\ValidatorException;
 use Magento\Framework\TestFramework\Unit\Helper\ObjectManager;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
+use Magento\Framework\Message\ManagerInterface;
 
 class AdyenPaymentsDetailsTest extends AbstractAdyenTestCase
 {
@@ -26,6 +28,8 @@ class AdyenPaymentsDetailsTest extends AbstractAdyenTestCase
     private $orderRepositoryMock;
     private $paymentsDetailsHelperMock;
     private $paymentResponseHandlerHelperMock;
+    private $adyenLoggerMock;
+    private $messageManagerMock;
 
     protected function setUp(): void
     {
@@ -35,12 +39,16 @@ class AdyenPaymentsDetailsTest extends AbstractAdyenTestCase
             PaymentResponseHandler::class,
             ['handlePaymentsDetailsResponse']
         );
+        $this->adyenLoggerMock = $this->createMock(AdyenLogger::class);
+        $this->messageManagerMock = $this->createMock(ManagerInterface::class);
 
         $objectManager = new ObjectManager($this);
         $this->adyenPaymentsDetails = $objectManager->getObject(AdyenPaymentsDetails::class, [
             'orderRepository' => $this->orderRepositoryMock,
             'paymentsDetails' => $this->paymentsDetailsHelperMock,
-            'paymentResponseHandler' => $this->paymentResponseHandlerHelperMock
+            'paymentResponseHandler' => $this->paymentResponseHandlerHelperMock,
+            'adyenLogger' => $this->adyenLoggerMock,
+            'messageManager' => $this->messageManagerMock
         ]);
     }
 
@@ -98,6 +106,10 @@ class AdyenPaymentsDetailsTest extends AbstractAdyenTestCase
         $this->paymentResponseHandlerHelperMock
             ->method('handlePaymentsDetailsResponse')
             ->willReturn(false);
+            
+        $this->messageManagerMock
+            ->expects($this->once())
+            ->method('addErrorMessage');
 
         $this->adyenPaymentsDetails->initiate($payload, $orderId);
     }

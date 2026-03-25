@@ -15,7 +15,6 @@ use Adyen\Payment\Helper\PaymentMethods;
 use Adyen\Payment\Helper\PaymentMethodsFilter;
 use Adyen\Payment\Test\Unit\AbstractAdyenTestCase;
 use Magento\Payment\Model\Method\Adapter;
-use Magento\Quote\Api\CartRepositoryInterface;
 use Magento\Quote\Api\Data\CartInterface;
 use Magento\Sales\Model\Order\Address;
 
@@ -175,17 +174,12 @@ class PaymentMethodsFilterTest extends AbstractAdyenTestCase
             ])
         ]);
 
-        $cartRepositoryInterfaceMock = $this->createConfiguredMock(CartRepositoryInterface::class, [
-            'get' => $quoteMock
-        ]);
-
         $paymentMethodsHelperMock = $this->createConfiguredMock(PaymentMethods::class, [
-            'getPaymentMethods' => self::PAYMENT_METHODS_RESPONSE
+            'getApiResponse' => self::PAYMENT_METHODS_RESPONSE
         ]);
 
         $paymentMethodsFilterHelper = $this->createPaymentMethodsFilterHelper(
-            $paymentMethodsHelperMock,
-            $cartRepositoryInterfaceMock
+            $paymentMethodsHelperMock
         );
 
         $sortedMagentoPaymentMethods =
@@ -200,17 +194,12 @@ class PaymentMethodsFilterTest extends AbstractAdyenTestCase
     }
 
     protected function createPaymentMethodsFilterHelper(
-        $paymentMethodsHelperMock = null,
-        $cartRepositoryInterfaceMock = null
+        $paymentMethodsHelperMock = null
     ): PaymentMethodsFilter {
         if (is_null($paymentMethodsHelperMock)) {
             $paymentMethodsHelperMock = $this->createMock(PaymentMethods::class);
         }
 
-        if (is_null($cartRepositoryInterfaceMock)) {
-            $cartRepositoryInterfaceMock = $this->createMock(CartRepositoryInterface::class);
-        }
-
-        return new PaymentMethodsFilter($paymentMethodsHelperMock, $cartRepositoryInterfaceMock);
+        return new PaymentMethodsFilter($paymentMethodsHelperMock);
     }
 }

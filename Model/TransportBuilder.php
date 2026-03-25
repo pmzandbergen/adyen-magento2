@@ -11,7 +11,6 @@
 
 namespace Adyen\Payment\Model;
 
-use Laminas\Mime\Mime;
 use Magento\Framework\App\TemplateTypesInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\MailException;
@@ -148,10 +147,10 @@ class TransportBuilder extends \Magento\Framework\Mail\Template\TransportBuilder
         SenderResolverInterface $senderResolver,
         ObjectManagerInterface $objectManager,
         TransportInterfaceFactory $mailTransportFactory,
-        EmailMessageInterfaceFactory $emailMessageInterfaceFactory = null,
-        MimeMessageInterfaceFactory $mimeMessageInterfaceFactory = null,
-        MimePartInterfaceFactory $mimePartInterfaceFactory = null,
-        AddressConverter $addressConverter = null
+        ?EmailMessageInterfaceFactory $emailMessageInterfaceFactory = null,
+        ?MimeMessageInterfaceFactory $mimeMessageInterfaceFactory = null,
+        ?MimePartInterfaceFactory $mimePartInterfaceFactory = null,
+        ?AddressConverter $addressConverter = null
     ) {
         $this->templateFactory = $templateFactory;
         $this->objectManager = $objectManager;
@@ -227,23 +226,6 @@ class TransportBuilder extends \Magento\Framework\Mail\Template\TransportBuilder
         $this->addAddressByType('replyTo', $email, $name);
 
         return $this;
-    }
-
-    /**
-     * Set mail from address
-     *
-     * @param string|array $from
-     *
-     * @return $this
-     * @throws InvalidArgumentException
-     * @see setFromByScope()
-     *
-     * @deprecated 102.0.1 This function sets the from address but does not provide
-     * a way of setting the correct from addresses based on the scope.
-     */
-    public function setFrom($from)
-    {
-        return $this->setFromByScope($from);
     }
 
     /**
@@ -441,9 +423,9 @@ class TransportBuilder extends \Magento\Framework\Mail\Template\TransportBuilder
         return $this->mimePartInterfaceFactory->create(
             [
                 'content' => $content,
-                'type' => Mime::TYPE_OCTETSTREAM,
-                'disposition' => Mime::DISPOSITION_ATTACHMENT,
-                'encoding' => Mime::ENCODING_BASE64,
+                'type' => MimeInterface::TYPE_OCTET_STREAM,
+                'disposition' => MimeInterface::DISPOSITION_ATTACHMENT,
+                'encoding' => MimeInterface::ENCODING_BASE64,
                 'fileName' => $filename
             ]
         );
